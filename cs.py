@@ -4,7 +4,7 @@ from snowflake.snowpark.context import get_active_session
 import pandas as pd
 
 # ========================================================
-# PAGE CONFIG
+# 1. PAGE CONFIG
 # ========================================================
 st.set_page_config(
     page_title="CS AI Assistant",
@@ -14,63 +14,48 @@ st.set_page_config(
 )
 
 # ========================================================
-# REFINED CSS - Focus on Visibility and Modernity
+# 2. EMERGENCY VISIBILITY CSS (Fixed for Ghosting)
 # ========================================================
 st.markdown("""
 <style>
-    /* Global Font and Clean Background */
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap');
-    
-    html, body, [data-testid="stAppViewContainer"] {
-        font-family: 'Inter', sans-serif;
+    /* Force visibility for sidebar elements */
+    [data-testid="stSidebar"] .stMarkdown, 
+    [data-testid="stSidebar"] label, 
+    [data-testid="stSidebar"] p {
+        color: var(--text-color) !important;
     }
 
-    /* Main Header Styling */
-    .header-container {
-        padding: 1.5rem;
-        background-color: #4A90E2;
+    /* Fix invisible Metric numbers */
+    [data-testid="stMetricValue"] {
+        color: #3b82f6 !important;
+        font-weight: 700 !important;
+    }
+    [data-testid="stMetricLabel"] {
+        color: var(--text-color) !important;
+    }
+
+    /* Modern Header with high contrast */
+    .main-header {
+        background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%);
+        padding: 2rem;
         border-radius: 12px;
-        color: white;
-        margin-bottom: 2rem;
+        color: white !important;
         text-align: center;
+        margin-bottom: 2rem;
     }
+    .main-header h1 { color: white !important; margin-bottom: 5px; }
+    .main-header p { color: rgba(255,255,255,0.8) !important; }
 
-    /* Chat Message Improvements */
+    /* Chat styling that adapts to theme */
     [data-testid="stChatMessage"] {
-        padding: 1rem;
-        border-radius: 15px;
-        margin-bottom: 10px;
-    }
-
-    /* Improved User Message Contrast */
-    [data-testid="user"] {
-        background-color: rgba(74, 144, 226, 0.1) !important;
-        border: 1px solid rgba(74, 144, 226, 0.2);
-    }
-
-    /* Sidebar Clean-up */
-    [data-testid="stSidebar"] {
-        background-color: #fcfcfc;
-    }
-
-    /* Metric Styling */
-    [data-testid="stMetric"] {
-        background: white;
-        padding: 10px;
         border-radius: 10px;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-    }
-
-    /* Source Context Expander Styling */
-    .streamlit-expanderHeader {
-        font-weight: 600 !important;
-        color: #4A90E2 !important;
+        border: 1px solid rgba(128, 128, 128, 0.1);
     }
 </style>
 """, unsafe_allow_html=True)
 
 # ========================================================
-# SNOWFLAKE CONNECTION
+# 3. SETTINGS & CONNECTION
 # ========================================================
 CS_TABLE_PATH = "CS.CS_SCHEMA.CS_TABLE"
 
@@ -79,60 +64,63 @@ def init_connection():
     try:
         return get_active_session()
     except Exception:
-        # Fallback for local development
+        # Assumes st.secrets is configured for local testing
         return Session.builder.configs(st.secrets["snowflake"]).create()
 
 session = init_connection()
 
 # ========================================================
-# SIDEBAR - Clean and Functional
+# 4. SIDEBAR (Fixed Visibility)
 # ========================================================
 with st.sidebar:
     st.title("💻 CS Assistant")
-    st.caption("v2.0 • Intelligent Academic Support")
+    st.caption("v2.0 Official Knowledge Base")
     
     st.divider()
     
-    # Session Metrics in an organized grid
-    st.subheader("📊 Statistics")
+    # Session Stats
     if "messages" not in st.session_state:
         st.session_state.messages = []
     
-    m_col1, m_col2 = st.columns(2)
-    user_msgs = len([m for m in st.session_state.messages if m["role"] == "user"])
-    m_col1.metric("Questions", user_msgs)
-    m_col2.metric("Tokens", f"{user_msgs * 1.2:.1f}k") # Approximation
+    user_msg_count = len([m for m in st.session_state.messages if m["role"] == "user"])
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        st.metric("Questions", user_msg_count)
+    with col2:
+        st.metric("Mode", "Cortex AI")
 
     st.divider()
 
-    st.subheader("⚙️ Configuration")
-    top_k = st.slider("Context Depth", 1, 5, 3, help="How many knowledge base articles to look at.")
-    show_sources = st.toggle("Show Research Sources", value=True)
+    st.subheader("⚙️ Settings")
+    top_k = st.slider("Search Depth", 1, 5, 3, help="Number of sources to retrieve.")
+    show_sources = st.toggle("Show Source Context", value=True)
 
     st.divider()
 
     st.subheader("💡 Suggestions")
-    examples = ["📋 Program Requirements", "✍️ Course Registration", "🕐 Office Hours"]
+    examples = ["📋 CS requirements", "✍️ Course registration", "🕐 Office hours"]
     for ex in examples:
         if st.button(ex, use_container_width=True):
+            # Clean the icon before storing the prompt
             st.session_state.active_prompt = ex.split(" ", 1)[1]
 
-    if st.button("🗑️ Reset Conversation", type="primary", use_container_width=True):
+    if st.button("🗑️ Clear Chat History", type="primary", use_container_width=True):
         st.session_state.messages = []
         st.rerun()
 
 # ========================================================
-# MAIN UI
+# 5. MAIN INTERFACE
 # ========================================================
 st.markdown("""
-    <div class="header-container">
-        <h1 style='margin:0;'>CS Academic Assistant</h1>
-        <p style='margin:0; opacity: 0.9;'>Official Department Knowledge Base</p>
-    </div>
-    """, unsafe_allow_html=True)
+<div class="main-header">
+    <h1>Computer Science AI Assistant</h1>
+    <p>Semantic search across official department documentation</p>
+</div>
+""", unsafe_allow_html=True)
 
-# Helper Functions
-def retrieve_context(user_input: str, top_k: int = 3):
+# Retrieval Functions
+def retrieve_context(user_input: str, k: int):
     safe_input = user_input.replace("'", "''")
     sql = f"""
         WITH q AS (
@@ -140,56 +128,69 @@ def retrieve_context(user_input: str, top_k: int = 3):
         )
         SELECT QUESTION, ANSWER, VECTOR_COSINE_SIMILARITY(QUESTION_EMBED, q.emb) AS score
         FROM {CS_TABLE_PATH}, q
-        ORDER BY score DESC LIMIT {top_k}
+        ORDER BY score DESC LIMIT {k}
     """
     return session.sql(sql).to_pandas()
 
-# Chat Display
-if not st.session_state.messages:
-    st.info("👋 **Welcome!** Ask a question about the CS department curriculum, faculty, or facilities to get started.")
-
+# Display Chat History
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
         if msg["role"] == "assistant" and "context" in msg and show_sources:
-            with st.expander("🔍 View Sources"):
-                for i, row in enumerate(msg["context"]):
-                    st.write(f"**{i+1}. {row['question']}** (Match: {row['score']:.1%})")
+            with st.expander("📚 View Sources"):
+                for row in msg["context"]:
+                    st.write(f"**Q:** {row['question']} (Similarity: {row['score']:.1%})")
                     st.caption(row['answer'])
 
-# Chat Input Logic
-prompt = st.chat_input("How can I help you today?")
+# Input Logic
+prompt = st.chat_input("Ask about the CS Department...")
+
+# If an example button was clicked, use that instead
 if "active_prompt" in st.session_state:
     prompt = st.session_state.active_prompt
     del st.session_state.active_prompt
 
 if prompt:
+    # 1. User Message
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
 
+    # 2. Assistant Message
     with st.chat_message("assistant"):
-        with st.spinner("Consulting knowledge base..."):
+        with st.spinner("Searching knowledge base..."):
             try:
                 context_df = retrieve_context(prompt, top_k)
-                context_str = "\n".join([f"Q: {r['QUESTION']}\nA: {r['ANSWER']}" for _, r in context_df.iterrows()])
+                context_text = "\n\n".join([f"Source: {r['ANSWER']}" for _, r in context_df.iterrows()])
                 
-                # Snowflake Cortex Call
-                llm_prompt = f"Using this context: {context_str}\n\nQuestion: {prompt}\nAnswer professionally:"
-                response = session.sql(f"SELECT SNOWFLAKE.CORTEX.COMPLETE('mistral-large2', '{llm_prompt.replace(chr(39), chr(39)*2)}')").collect()[0][0]
+                # Build Prompt for Cortex
+                ai_prompt = f"""Use the following context to answer the student:
+                Context: {context_text}
+                Student Question: {prompt}
+                Answer:"""
+                
+                # Execute Cortex LLM call
+                query = f"SELECT SNOWFLAKE.CORTEX.COMPLETE('mistral-large2', '{ai_prompt.replace(chr(39), chr(39)*2)}')"
+                response = session.sql(query).collect()[0][0]
                 
                 st.markdown(response)
                 
-                # Save to history
-                history_entry = {
+                # Save Context for later viewing
+                context_list = [{"question": r['QUESTION'], "answer": r['ANSWER'], "score": r['SCORE']} for _, r in context_df.iterrows()]
+                st.session_state.messages.append({
                     "role": "assistant", 
                     "content": response,
-                    "context": [{"question": r['QUESTION'], "answer": r['ANSWER'], "score": r['SCORE']} for _, r in context_df.iterrows()]
-                }
-                st.session_state.messages.append(history_entry)
+                    "context": context_list
+                })
                 
+                if show_sources:
+                    with st.expander("📚 View Sources"):
+                        for item in context_list:
+                            st.write(f"**Q:** {item['question']} ({item['score']:.1%})")
+                            st.caption(item['answer'])
+
             except Exception as e:
-                st.error(f"Error: {str(e)}")
+                st.error(f"Error processing request: {str(e)}")
 
 st.divider()
-st.caption("Powered by Snowflake Cortex AI • CS Department v2026")
+st.caption("Powered by Snowflake Cortex AI • CS Department Documentation")
