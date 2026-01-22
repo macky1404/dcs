@@ -1,196 +1,110 @@
 import streamlit as st
-from snowflake.snowpark import Session
 from snowflake.snowpark.context import get_active_session
 import pandas as pd
 
 # ========================================================
-# 1. PAGE CONFIG
+# SETTINGS
 # ========================================================
-st.set_page_config(
-    page_title="CS AI Assistant",
-    page_icon="💻",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+# This matches the database and table we built in your new account
+CS_TABLE_PATH = "CS.CS_SCHEMA.CS_TABLE" 
 
-# ========================================================
-# 2. EMERGENCY VISIBILITY CSS (Fixed for Ghosting)
-# ========================================================
-st.markdown("""
-<style>
-    /* Force visibility for sidebar elements */
-    [data-testid="stSidebar"] .stMarkdown, 
-    [data-testid="stSidebar"] label, 
-    [data-testid="stSidebar"] p {
-        color: var(--text-color) !important;
-    }
-
-    /* Fix invisible Metric numbers */
-    [data-testid="stMetricValue"] {
-        color: #3b82f6 !important;
-        font-weight: 700 !important;
-    }
-    [data-testid="stMetricLabel"] {
-        color: var(--text-color) !important;
-    }
-
-    /* Modern Header with high contrast */
-    .main-header {
-        background: linear-gradient(135deg, #1e3a8a 0%, #3b82f6 100%);
-        padding: 2rem;
-        border-radius: 12px;
-        color: white !important;
-        text-align: center;
-        margin-bottom: 2rem;
-    }
-    .main-header h1 { color: white !important; margin-bottom: 5px; }
-    .main-header p { color: rgba(255,255,255,0.8) !important; }
-
-    /* Chat styling that adapts to theme */
-    [data-testid="stChatMessage"] {
-        border-radius: 10px;
-        border: 1px solid rgba(128, 128, 128, 0.1);
-    }
-</style>
-""", unsafe_allow_html=True)
+# Use the session already active in your Snowflake account
+session = get_active_session()
 
 # ========================================================
-# 3. SETTINGS & CONNECTION
+# APP HEADER
 # ========================================================
-CS_TABLE_PATH = "CS.CS_SCHEMA.CS_TABLE"
-
-@st.cache_resource
-def init_connection():
-    try:
-        return get_active_session()
-    except Exception:
-        # Assumes st.secrets is configured for local testing
-        return Session.builder.configs(st.secrets["snowflake"]).create()
-
-session = init_connection()
+st.set_page_config(page_title="CS AI Assistant", layout="centered")
+st.title("💻 CS Department – AI Academic Assistant")
+st.markdown("---")
+st.caption("Powered by Snowflake Cortex: Semantic Search & RAG")
 
 # ========================================================
-# 4. SIDEBAR (Fixed Visibility)
+# SEMANTIC RETRIEVAL (RAG ENGINE)
 # ========================================================
-with st.sidebar:
-    st.title("💻 CS Assistant")
-    st.caption("v2.0 Official Knowledge Base")
-    
-    st.divider()
-    
-    # Session Stats
-    if "messages" not in st.session_state:
-        st.session_state.messages = []
-    
-    user_msg_count = len([m for m in st.session_state.messages if m["role"] == "user"])
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        st.metric("Questions", user_msg_count)
-    with col2:
-        st.metric("Mode", "Cortex AI")
-
-    st.divider()
-
-    st.subheader("⚙️ Settings")
-    top_k = st.slider("Search Depth", 1, 5, 3, help="Number of sources to retrieve.")
-    show_sources = st.toggle("Show Source Context", value=True)
-
-    st.divider()
-
-    st.subheader("💡 Suggestions")
-    examples = ["📋 CS requirements", "✍️ Course registration", "🕐 Office hours"]
-    for ex in examples:
-        if st.button(ex, use_container_width=True):
-            # Clean the icon before storing the prompt
-            st.session_state.active_prompt = ex.split(" ", 1)[1]
-
-    if st.button("🗑️ Clear Chat History", type="primary", use_container_width=True):
-        st.session_state.messages = []
-        st.rerun()
-
-# ========================================================
-# 5. MAIN INTERFACE
-# ========================================================
-st.markdown("""
-<div class="main-header">
-    <h1>Computer Science AI Assistant</h1>
-    <p>Semantic search across official department documentation</p>
-</div>
-""", unsafe_allow_html=True)
-
-# Retrieval Functions
-def retrieve_context(user_input: str, k: int):
+def retrieve_context(user_input: str, top_k: int = 3) -> pd.DataFrame:
+    # We use 'multilingual-e5-large' because it works in almost every region
+    # and matches the 768 vector size we used in SQL.
     safe_input = user_input.replace("'", "''")
+
     sql = f"""
         WITH q AS (
-            SELECT SNOWFLAKE.CORTEX.EMBED_TEXT_768('snowflake-arctic-embed-m', '{safe_input}') AS emb
+            SELECT SNOWFLAKE.CORTEX.EMBED_TEXT_1024(
+                'multilingual-e5-large', 
+                '{safe_input}'
+            ) AS emb
         )
-        SELECT QUESTION, ANSWER, VECTOR_COSINE_SIMILARITY(QUESTION_EMBED, q.emb) AS score
+        SELECT
+            QUESTION,
+            ANSWER,
+            VECTOR_COSINE_SIMILARITY(QUESTION_EMBED, q.emb) AS score
         FROM {CS_TABLE_PATH}, q
-        ORDER BY score DESC LIMIT {k}
+        ORDER BY score DESC
+        LIMIT {top_k}
     """
     return session.sql(sql).to_pandas()
 
-# Display Chat History
+# ========================================================
+# PROMPT BUILDER
+# ========================================================
+def build_prompt(context_df: pd.DataFrame, user_question: str) -> str:
+    if context_df.empty:
+        context_text = "No relevant department records found."
+    else:
+        context_text = "\n\n".join(
+            f"Fact {i+1}: {row['ANSWER']}"
+            for i, row in context_df.iterrows()
+        )
+
+    return f"""
+    You are a professional Academic Assistant for the Computer Science Department.
+    Use the following department facts to answer the student's question accurately.
+    If the answer is not in the facts, politely tell the student to contact the department office.
+
+    DEPARTMENT FACTS:
+    {context_text}
+
+    STUDENT QUESTION:
+    {user_question}
+    """
+
+# ========================================================
+# CHAT INTERFACE
+# ========================================================
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
+# Display previous messages
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
-        if msg["role"] == "assistant" and "context" in msg and show_sources:
-            with st.expander("📚 View Sources"):
-                for row in msg["context"]:
-                    st.write(f"**Q:** {row['question']} (Similarity: {row['score']:.1%})")
-                    st.caption(row['answer'])
 
-# Input Logic
-prompt = st.chat_input("Ask about the CS Department...")
-
-# If an example button was clicked, use that instead
-if "active_prompt" in st.session_state:
-    prompt = st.session_state.active_prompt
-    del st.session_state.active_prompt
-
-if prompt:
-    # 1. User Message
+# User Input
+if prompt := st.chat_input("Ask a question about the CS Department..."):
+    # Add user message to history
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
 
-    # 2. Assistant Message
+    # Generate Assistant Response
     with st.chat_message("assistant"):
-        with st.spinner("Searching knowledge base..."):
+        with st.spinner("Consulting Department Knowledge Base..."):
             try:
-                context_df = retrieve_context(prompt, top_k)
-                context_text = "\n\n".join([f"Source: {r['ANSWER']}" for _, r in context_df.iterrows()])
+                # 1. Search for the most relevant facts (Retrieval)
+                context_df = retrieve_context(prompt)
                 
-                # Build Prompt for Cortex
-                ai_prompt = f"""Use the following context to answer the student:
-                Context: {context_text}
-                Student Question: {prompt}
-                Answer:"""
-                
-                # Execute Cortex LLM call
-                query = f"SELECT SNOWFLAKE.CORTEX.COMPLETE('mistral-large2', '{ai_prompt.replace(chr(39), chr(39)*2)}')"
-                response = session.sql(query).collect()[0][0]
-                
+                # 2. Build the detailed instruction for the AI (Augmentation)
+                ai_prompt = build_prompt(context_df, prompt).replace("'", "''")
+
+                # 3. Get the natural language answer (Generation)
+                # Using 'mistral-large2' which is standard in Snowflake Cortex
+                query = f"SELECT SNOWFLAKE.CORTEX.COMPLETE('mistral-large2', '{ai_prompt}') AS RESPONSE"
+                result = session.sql(query).collect()
+                response = result[0]["RESPONSE"]
+
                 st.markdown(response)
-                
-                # Save Context for later viewing
-                context_list = [{"question": r['QUESTION'], "answer": r['ANSWER'], "score": r['SCORE']} for _, r in context_df.iterrows()]
-                st.session_state.messages.append({
-                    "role": "assistant", 
-                    "content": response,
-                    "context": context_list
-                })
-                
-                if show_sources:
-                    with st.expander("📚 View Sources"):
-                        for item in context_list:
-                            st.write(f"**Q:** {item['question']} ({item['score']:.1%})")
-                            st.caption(item['answer'])
+                st.session_state.messages.append({"role": "assistant", "content": response})
 
             except Exception as e:
-                st.error(f"Error processing request: {str(e)}")
-
-st.divider()
-st.caption("Powered by Snowflake Cortex AI • CS Department Documentation")
+                st.error(f"Something went wrong: {e}")
+                st.info("Check if your SQL table has the 'QUESTION_EMBED' column filled.")
